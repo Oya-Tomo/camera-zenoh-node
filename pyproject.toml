@@ -1,7 +1,24 @@
 [project]
 name = "camera-zenoh-node"
 version = "0.1.0"
-description = "Add your description here"
+description = "Publish JPEG-encoded camera frames over Zenoh"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "eclipse-zenoh>=1.9.0",
+    "opencv-python-headless>=5.0.0.93",
+]
+
+[dependency-groups]
+dev = [
+    "numpy>=2.5.1",
+    "pyright>=1.1.411",
+    "ruff>=0.15.21",
+]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.ruff.lint]
+extend-select = ["B", "I", "RUF", "SIM", "UP"]
