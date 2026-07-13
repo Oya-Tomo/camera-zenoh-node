@@ -5,6 +5,7 @@
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - A camera recognized by OpenCV
+- A desktop display when using the optional OpenCV viewer example
 
 Install the project dependencies:
 
@@ -52,6 +53,8 @@ source: {path: "/dev/v4l/by-id/usb-Example_Camera-video-index0"}
 ```
 
 `/dev/v4l/by-path/...` can be used when the physical USB connection is the desired identity. Alternatively, use `source: {index: 0}` to pass an OpenCV integer index. `/dev/videoX` numbers and OpenCV indexes can change when device discovery order changes, so they are less suitable for multi-camera deployments.
+
+One physical camera may expose multiple V4L2 nodes. A `video-index0` link is commonly the capture node, but verify it by opening and reading a frame rather than treating every `/dev/videoX` entry as a separate camera.
 
 Specify exactly one of `source.path` and `source.index` for every camera. If the node reports that it could not open a camera, check that:
 

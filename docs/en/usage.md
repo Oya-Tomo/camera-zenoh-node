@@ -84,6 +84,8 @@ Each camera worker schedules against absolute deadlines from a monotonic clock. 
 
 The missed-slot count is independent for each `device_key`. A warning is logged on the first miss and then when the cumulative count crosses 10, 20, 30, and so on. One scheduling iteration emits at most one summary even if it crosses several thresholds. Frames normally omitted because the camera captures faster than `publish_frequency_hz` are rate downsampling, not deadline misses, and do not produce warnings.
 
+The FPS reported by a camera is a capability value, not a guarantee for simultaneous capture. USB bandwidth, capture format, resizing, JPEG encoding, and other cameras can lower effective throughput. Start below the measured simultaneous-capture rate. If missed-slot warnings continue to increase, lower `publish_frequency_hz`, output `size`, or `jpeg_quality` as appropriate.
+
 For live video, `drop` with `best_effort` normally favors fresh frames over delayed delivery. For delivery-oriented behavior, evaluate congestion control and reliability together: `reliable` does not prevent `drop` from discarding samples when the transmission queue is congested.
 
 ## Failure behavior
@@ -121,7 +123,15 @@ Each Zenoh sample contains one frame.
 
 ## Decoding in a subscriber
 
-Minimal receiving example using Zenoh Python and OpenCV:
+The ready-to-run OpenCV viewer subscribes to one concrete camera key and keeps only the newest received JPEG, so a slow display does not build an unbounded queue of stale frames:
+
+```console
+$ uv run examples/viewer.py camera/front
+```
+
+Its default Zenoh configuration connects to `tcp/127.0.0.1:7447`. Press `q`, `Esc`, or close the window to stop it. See the [viewer example](../../examples/README.md) for a different endpoint or a second camera.
+
+The equivalent minimal receiving callback is:
 
 ```python
 import cv2
@@ -148,8 +158,8 @@ Use a concrete camera key such as `camera/front`, or a matching expression such 
 When two physical cameras are available:
 
 1. Configure distinct `source` and `device_key` values for both cameras.
-2. Subscribe to `{base_key}/*` and start the node.
-3. Confirm that both keys receive valid JPEG frames at their configured dimensions.
+2. Start the node and one `examples/viewer.py` process for each concrete `{base_key}/{device_key}`.
+3. Confirm that both windows receive valid frames at their configured dimensions and that sustained missed-slot warnings do not appear at the chosen frequencies.
 4. Disconnect or otherwise fail one camera and confirm that the whole node exits non-zero after releasing the other camera.
 
 This hardware-dependent test is not part of the automated test suite.

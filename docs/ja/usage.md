@@ -84,6 +84,8 @@ frameは設定した`size`へ正確にresizeします。取得frameとaspect rat
 
 missしたslot数は`device_key`ごとに独立して数えます。1回目と、累積数が10、20、30回…を超えた時にwarning logを出します。1回のscheduling iterationで複数thresholdを超えてもsummaryは1件だけです。カメラの取得速度が`publish_frequency_hz`より速いため通常のrate downsamplingでpublishされないframeはdeadline missではなく、warningを出しません。
 
+カメラが報告するFPSはcapability値であり、複数台同時capture時の保証値ではありません。USB bandwidth、capture format、resize、JPEG encode、ほかのカメラの影響で実効throughputは低下します。同時captureで実測したrateより低い値から設定してください。missed-slot warningが増え続ける場合は、用途に合わせて`publish_frequency_hz`、出力`size`、または`jpeg_quality`を下げます。
+
 ライブ映像では、通常は`drop`と`best_effort`の組み合わせが、遅れて届く古いframeより新しいframeを優先します。deliveryを重視する場合はcongestion controlとreliabilityを一緒に検討してください。`reliable`を指定しても、送信queue混雑時に`drop`がsampleを破棄する動作は防げません。
 
 ## 障害時の動作
@@ -121,7 +123,15 @@ $ uv run node.py --help
 
 ## Subscriberでのデコード
 
-Zenoh PythonとOpenCVを使う最小の受信例です。
+実行可能なOpenCV viewerは、1台のconcreteなcamera keyをsubscribeし、受信した最新JPEGだけを保持します。表示が遅れても古いframeのqueueが際限なく蓄積しません。
+
+```console
+$ uv run examples/viewer.py camera/front
+```
+
+defaultのZenoh設定は`tcp/127.0.0.1:7447`へ接続します。終了するときは`q`、`Esc`を押すかwindowを閉じます。別endpointや2台目の表示は[viewer example](../../examples/README_ja.md)を参照してください。
+
+同等の最小受信callbackは次のとおりです。
 
 ```python
 import cv2
@@ -148,8 +158,8 @@ with zenoh.open(zenoh.Config()) as session:
 物理カメラを2台利用できる場合は、次を確認します。
 
 1. 2台に異なる`source`と`device_key`を設定する。
-2. `{base_key}/*`をsubscribeしてノードを起動する。
-3. 両方のkeyで、設定寸法の有効なJPEG frameを受信できることを確認する。
+2. ノードを起動し、各concreteな`{base_key}/{device_key}`に対して`examples/viewer.py`を1processずつ起動する。
+3. 両方のwindowで設定寸法の有効なframeを受信でき、選択したfrequencyでmissed-slot warningが継続しないことを確認する。
 4. 一方のカメラを切断するなどして障害を起こし、もう一方もreleaseしてノード全体が非0 statusで終了することを確認する。
 
 このhardware依存testは自動test suiteには含まれません。

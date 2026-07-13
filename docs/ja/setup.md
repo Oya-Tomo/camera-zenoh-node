@@ -5,6 +5,7 @@
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - OpenCVから認識できるカメラ
+- OpenCV viewer exampleを使う場合はdesktop display
 
 依存パッケージをインストールします。
 
@@ -52,6 +53,8 @@ source: {path: "/dev/v4l/by-id/usb-Example_Camera-video-index0"}
 ```
 
 物理USB接続位置をidentityにしたい場合は`/dev/v4l/by-path/...`も利用できます。OpenCVの整数indexを渡すには`source: {index: 0}`を使います。`/dev/videoX`番号とOpenCV indexはdeviceの検出順によって変わる可能性があるため、複数カメラ構成では安定したpathの方が適しています。
+
+1台の物理カメラが複数のV4L2 nodeを公開する場合があります。一般には`video-index0` linkがcapture nodeですが、すべての`/dev/videoX`を別カメラと見なさず、実際にopenしてframeを読めることを確認してください。
 
 各カメラでは`source.path`と`source.index`のどちらか一方だけを指定します。カメラをopenできないエラーが表示された場合は、次を確認してください。
 
