@@ -76,4 +76,4 @@ with zenoh.open(zenoh.Config()) as session:
         input("Press Enter to stop\n")
 ```
 
-publisher と subscriber を別ホストで動かす場合は、両方が同じ Zenoh network に参加できるよう設定してください。接続方法は [セットアップ](setup.md#zenoh-の接続) を参照してください。
+publisher と subscriber を別ホストで動かす場合は、両方が同じ Zenoh network に参加できるよう設定してください。接続方法は[セットアップ](setup.md#zenoh-の接続)を参照してください。
