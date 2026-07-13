@@ -5,6 +5,7 @@
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - A camera recognized by OpenCV
+- A desktop display when using the optional OpenCV viewer example
 
 Install the project dependencies:
 
@@ -28,7 +29,7 @@ The node reads both files at startup:
 | File | Purpose |
 | --- | --- |
 | `config/zenoh-config.json5` | Zenoh mode, endpoints, scouting, and transport settings |
-| `config/node-config.json5` | Camera, image, key expression, and publisher QoS settings |
+| `config/node-config.json5` | Camera sources, output settings, key hierarchy, frequency, and publisher QoS |
 
 Both files accept JSON5. The node configuration rejects missing, unknown, and duplicate keys to make configuration mistakes fail at startup.
 
@@ -38,19 +39,30 @@ Default paths are resolved from the current working directory. Run the node from
 
 ## Checking the camera
 
-On Linux, list the available Video4Linux devices:
+On Linux, inspect the available Video4Linux devices and persistent udev links:
 
 ```console
 $ ls /dev/video*
+$ ls -l /dev/v4l/by-id/ /dev/v4l/by-path/
 ```
 
-Set `camera.device` in `config/node-config.json5` to the numeric suffix of the device to use. If the node reports `could not open camera device`, check that:
+For a stable identity, configure a camera with a `/dev/v4l/by-id/...` link:
 
-- The corresponding `/dev/video*` device exists.
+```json5
+source: {path: "/dev/v4l/by-id/usb-Example_Camera-video-index0"}
+```
+
+`/dev/v4l/by-path/...` can be used when the physical USB connection is the desired identity. Alternatively, use `source: {index: 0}` to pass an OpenCV integer index. `/dev/videoX` numbers and OpenCV indexes can change when device discovery order changes, so they are less suitable for multi-camera deployments.
+
+One physical camera may expose multiple V4L2 nodes. A `video-index0` link is commonly the capture node, but verify it by opening and reading a frame rather than treating every `/dev/videoX` entry as a separate camera.
+
+Specify exactly one of `source.path` and `source.index` for every camera. If the node reports that it could not open a camera, check that:
+
+- The configured device or symlink exists and resolves to the intended camera.
 - The current user has read/write access to the device. On Linux, also check membership in the `video` group.
 - Another process is not already using the camera.
 
-When running inside a container, pass the camera device through to the container.
+When running inside a container, pass every configured camera device through to the container. The node opens all configured cameras before starting publication, so one unavailable camera causes startup to fail and all resources to be released.
 
 ## Connecting to Zenoh
 
