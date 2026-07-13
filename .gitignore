@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Machine-specific runtime configuration
+config/zenoh-config.json5
+config/node-config.json5

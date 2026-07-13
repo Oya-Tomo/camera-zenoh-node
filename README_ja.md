@@ -2,20 +2,18 @@
 
 [English](README.md)
 
-OpenCVで取得したカメラ映像をJPEGに変換し、ZenohへpublishするPythonノードです。
-
-CLI、既定値、JPEG payloadはEclipse Zenohの
-[`zcam-python`](https://github.com/eclipse-zenoh/zenoh-demos/tree/main/computer-vision/zcam/zcam-python)
-を基準にしています。リソース管理とQoSはZenoh Python 1.9のAPIに合わせています。
+OpenCVで取得したカメラ映像をJPEGに変換し、Zenohへpublishする設定ファイル駆動のPythonノードです。
 
 ## クイックスタート
 
 ```console
 $ uv sync
+$ cp config/zenoh-config.example.json5 config/zenoh-config.json5
+$ cp config/node-config.example.json config/node-config.json5
 $ uv run node.py
 ```
 
-デフォルトではカメラデバイス`0`の映像を幅500 px、JPEG品質95で`demo/zcam`にpublishします。
+Zenohの設定は`config/zenoh-config.json5`、カメラpublisherの設定は`config/node-config.json5`から読み込みます。既定パスはcurrent working directoryからの相対パスなので、リポジトリrootで実行してください。個別の実行時設定をCLIから上書きすることはできません。
 
 ## ドキュメント
 

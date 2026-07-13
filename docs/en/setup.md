@@ -12,11 +12,29 @@ Install the project dependencies:
 $ uv sync
 ```
 
-If the following command displays the CLI help, the Python environment is ready:
+## Prepare the configuration files
+
+Copy the version-controlled examples to the default runtime paths:
 
 ```console
-$ uv run node.py --help
+$ cp config/zenoh-config.example.json5 config/zenoh-config.json5
+$ cp config/node-config.example.json config/node-config.json5
 ```
+
+The runtime files are ignored by Git so that machine-specific camera devices and network endpoints are not committed accidentally.
+
+The node reads both files at startup:
+
+| File | Purpose |
+| --- | --- |
+| `config/zenoh-config.json5` | Zenoh mode, endpoints, scouting, and transport settings |
+| `config/node-config.json5` | Camera, image, key expression, and publisher QoS settings |
+
+Both files accept JSON5. The node configuration rejects missing, unknown, and duplicate keys to make configuration mistakes fail at startup.
+
+The node example deliberately uses strict JSON and a `.json` suffix. JSON is a subset of JSON5, so copying it to `node-config.json5` preserves the same content while allowing JSON5 features in the runtime file.
+
+Default paths are resolved from the current working directory. Run the node from the repository root when using them, or pass both explicit paths as described below.
 
 ## Checking the camera
 
@@ -26,9 +44,9 @@ On Linux, list the available Video4Linux devices:
 $ ls /dev/video*
 ```
 
-If the node reports `could not open camera device`, check that:
+Set `camera.device` in `config/node-config.json5` to the numeric suffix of the device to use. If the node reports `could not open camera device`, check that:
 
-- The `/dev/video*` device selected by `--device` exists.
+- The corresponding `/dev/video*` device exists.
 - The current user has read/write access to the device. On Linux, also check membership in the `video` group.
 - Another process is not already using the camera.
 
@@ -36,40 +54,76 @@ When running inside a container, pass the camera device through to the container
 
 ## Connecting to Zenoh
 
-Without explicit connection settings, the node uses the Zenoh defaults. Peers on the same network can discover each other through multicast scouting.
+Zenoh Python loads the connection configuration directly through `zenoh.Config.from_file()`. Refer to the official [Zenoh deployment guide](https://zenoh.io/docs/getting-started/deployment/) and [`DEFAULT_CONFIG.json5`](https://github.com/eclipse-zenoh/zenoh/blob/main/DEFAULT_CONFIG.json5) for the complete schema.
 
-To connect to a Zenoh router as a client:
+The supplied example runs as a peer, listens on TCP port 7447, and enables multicast scouting:
 
-```console
-$ uv run node.py --mode client --connect tcp/192.168.1.10:7447
+```json5
+{
+  mode: "peer",
+  listen: {
+    endpoints: ["tcp/0.0.0.0:7447"],
+  },
+  connect: {
+    endpoints: [],
+  },
+  scouting: {
+    multicast: {
+      enabled: true,
+    },
+  },
+}
 ```
 
-Repeat `--connect` to provide multiple candidate endpoints:
+`0.0.0.0` is a local wildcard bind address. It makes the process accept connections on every local IPv4 interface; it is not the address that a remote peer puts in `connect.endpoints`. A remote peer connects to an address reachable on this host, for example `tcp/192.168.1.20:7447`.
+
+Port 7447 must be unused on the publisher host. Listening on `0.0.0.0` also exposes the Zenoh endpoint on every reachable IPv4 interface, so restrict the bind address or firewall rules when the network is not trusted.
+
+To connect this node to an existing router instead, use client mode and the router's reachable address:
+
+```json5
+{
+  mode: "client",
+  connect: {
+    endpoints: ["tcp/192.168.1.10:7447"],
+  },
+  scouting: {
+    multicast: {
+      enabled: false,
+    },
+  },
+}
+```
+
+To connect directly to a peer that is already listening:
+
+```json5
+{
+  mode: "peer",
+  connect: {
+    endpoints: ["tcp/192.168.1.20:7447"],
+  },
+  scouting: {
+    multicast: {
+      enabled: false,
+    },
+  },
+}
+```
+
+Only one side needs to initiate a given direct TCP connection: one side listens on a stable port and the other side connects to that host and port. If multicast scouting is available, explicit endpoints may be unnecessary.
+
+## Using configuration files in another location
+
+The only CLI options select the two configuration files:
 
 ```console
 $ uv run node.py \
-    --mode client \
-    --connect tcp/router-a:7447 \
-    --connect tcp/router-b:7447
+    --zenoh-config /etc/camera-node/zenoh.json5 \
+    --node-config /etc/camera-node/node.json5
 ```
 
-You can also use a JSON5 configuration file:
-
-```console
-$ uv run node.py --config zenoh.json5
-```
-
-Configuration precedence, from lowest to highest, is: Zenoh defaults, the file passed to `--config`, dedicated options such as `--mode`, `--connect`, and `--listen`, and finally `--cfg`.
-
-Disable multicast scouting with `--no-multicast-scouting`. Other Zenoh settings can be overridden with `--cfg KEY:VALUE`, following the current Zenoh Python examples:
-
-```console
-$ uv run node.py \
-    --no-multicast-scouting \
-    --cfg 'transport/unicast/max_links:2'
-```
-
-`VALUE` must be valid JSON5 for the selected Zenoh configuration field.
+Camera, publisher, and Zenoh values cannot be overridden individually from the CLI.
 
 ## Development checks
 

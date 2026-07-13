@@ -3,137 +3,218 @@
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import sys
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import cast
 
 import cv2
+import json5
 import zenoh
 
+DEFAULT_ZENOH_CONFIG_PATH = Path("config/zenoh-config.json5")
+DEFAULT_NODE_CONFIG_PATH = Path("config/node-config.json5")
 MAX_CAMERA_READ_FAILURES = 10
 CAMERA_READ_RETRY_DELAY = 0.1
 
-
-def bounded_int(minimum: int, maximum: int | None = None) -> Callable[[str], int]:
-    def parse(value: str) -> int:
-        parsed = int(value)
-        if parsed < minimum or (maximum is not None and parsed > maximum):
-            expected = (
-                f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
-            )
-            raise argparse.ArgumentTypeError(f"must be {expected}")
-        return parsed
-
-    return parse
+CONGESTION_CONTROLS = {
+    "drop": zenoh.CongestionControl.DROP,
+    "block": zenoh.CongestionControl.BLOCK,
+    "block_first": zenoh.CongestionControl.BLOCK_FIRST,
+}
+RELIABILITIES = {
+    "best_effort": zenoh.Reliability.BEST_EFFORT,
+    "reliable": zenoh.Reliability.RELIABLE,
+}
 
 
-def non_negative_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed) or parsed < 0:
-        raise argparse.ArgumentTypeError("must be a finite number >= 0")
-    return parsed
+@dataclass(frozen=True)
+class CameraConfig:
+    device: int
+    width: int
+    jpeg_quality: int
+
+
+@dataclass(frozen=True)
+class PublisherConfig:
+    key_expression: str
+    frame_delay_seconds: float
+    congestion_control: zenoh.CongestionControl
+    reliability: zenoh.Reliability
+
+
+@dataclass(frozen=True)
+class NodeConfig:
+    camera: CameraConfig
+    publisher: PublisherConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="camera-zenoh-node",
         description="Capture camera frames and publish them over Zenoh.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "-m",
-        "--mode",
-        choices=("peer", "client"),
-        help="The Zenoh session mode.",
-    )
-    parser.add_argument(
-        "-e",
-        "--connect",
-        metavar="ENDPOINT",
-        action="append",
-        help="Zenoh endpoints to connect to.",
-    )
-    parser.add_argument(
-        "-l",
-        "--listen",
-        metavar="ENDPOINT",
-        action="append",
-        help="Zenoh endpoints to listen on.",
-    )
-    parser.add_argument(
-        "-c",
-        "--config",
+        "--zenoh-config",
+        type=Path,
+        default=DEFAULT_ZENOH_CONFIG_PATH,
         metavar="FILE",
-        help="A Zenoh configuration file.",
+        help="Zenoh JSON5 configuration file.",
     )
     parser.add_argument(
-        "--no-multicast-scouting",
-        action="store_true",
-        help="Disable multicast scouting.",
-    )
-    parser.add_argument(
-        "--cfg",
-        metavar="KEY:VALUE",
-        action="append",
-        default=[],
-        help="Apply an arbitrary Zenoh JSON5 configuration override.",
-    )
-    parser.add_argument(
-        "--device",
-        type=bounded_int(0),
-        default=0,
-        help="OpenCV camera device index (default: 0).",
-    )
-    parser.add_argument(
-        "-w",
-        "--width",
-        type=bounded_int(1),
-        default=500,
-        help="Width of published frames (default: 500).",
-    )
-    parser.add_argument(
-        "-q",
-        "--quality",
-        type=bounded_int(0, 100),
-        default=95,
-        help="JPEG quality from 0 to 100 (default: 95).",
-    )
-    parser.add_argument(
-        "-d",
-        "--delay",
-        type=non_negative_float,
-        default=0.05,
-        help="Additional delay after each frame in seconds (default: 0.05).",
-    )
-    parser.add_argument(
-        "-k",
-        "--key",
-        default="demo/zcam",
-        help="Zenoh key expression (default: demo/zcam).",
+        "--node-config",
+        type=Path,
+        default=DEFAULT_NODE_CONFIG_PATH,
+        metavar="FILE",
+        help="Camera publisher JSON5 configuration file.",
     )
     return parser
 
 
-def zenoh_config_from_args(args: argparse.Namespace) -> zenoh.Config:
-    config = zenoh.Config.from_file(args.config) if args.config else zenoh.Config()
-    if args.mode:
-        config.insert_json5("mode", json.dumps(args.mode))
-    if args.connect:
-        config.insert_json5("connect/endpoints", json.dumps(args.connect))
-    if args.listen:
-        config.insert_json5("listen/endpoints", json.dumps(args.listen))
-    if args.no_multicast_scouting:
-        config.insert_json5("scouting/multicast/enabled", json.dumps(False))
-    for override in args.cfg:
-        try:
-            key, value = override.split(":", 1)
-        except ValueError:
-            raise ValueError(
-                f"invalid --cfg value {override!r}; expected KEY:VALUE"
-            ) from None
-        config.insert_json5(key, value)
-    return config
+def _object(value: object, location: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise ValueError(f"{location} must be an object")
+    return cast(dict[str, object], value)
+
+
+def _validate_keys(
+    values: Mapping[str, object], expected: set[str], location: str
+) -> None:
+    missing = expected - values.keys()
+    unknown = values.keys() - expected
+    if missing:
+        raise ValueError(f"{location} is missing: {', '.join(sorted(missing))}")
+    if unknown:
+        raise ValueError(f"{location} has unknown keys: {', '.join(sorted(unknown))}")
+
+
+def _integer(
+    values: Mapping[str, object],
+    key: str,
+    location: str,
+    *,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    value = values[key]
+    if type(value) is not int:
+        raise ValueError(f"{location}.{key} must be an integer")
+    if value < minimum or (maximum is not None and value > maximum):
+        expected = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
+        raise ValueError(f"{location}.{key} must be {expected}")
+    return value
+
+
+def _non_negative_number(
+    values: Mapping[str, object], key: str, location: str
+) -> float:
+    value = values[key]
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ValueError(f"{location}.{key} must be a finite number >= 0")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise ValueError(f"{location}.{key} must be a finite number >= 0") from None
+    if not math.isfinite(number) or number < 0:
+        raise ValueError(f"{location}.{key} must be a finite number >= 0")
+    return number
+
+
+def _non_empty_string(values: Mapping[str, object], key: str, location: str) -> str:
+    value = values[key]
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{location}.{key} must be a non-empty string")
+    return value
+
+
+def _choice[Choice](
+    values: Mapping[str, object],
+    key: str,
+    choices: Mapping[str, Choice],
+    location: str,
+) -> Choice:
+    value = _non_empty_string(values, key, location)
+    if value not in choices:
+        raise ValueError(
+            f"{location}.{key} must be one of: {', '.join(sorted(choices))}"
+        )
+    return choices[value]
+
+
+def _key_expression(values: Mapping[str, object], key: str, location: str) -> str:
+    value = _non_empty_string(values, key, location)
+    try:
+        zenoh.KeyExpr(value)
+    except zenoh.ZError as error:
+        raise ValueError(
+            f"{location}.{key} must be a valid Zenoh key expression: {error}"
+        ) from error
+    if "*" in value:
+        raise ValueError(
+            f"{location}.{key} must be a concrete Zenoh key without wildcards"
+        )
+    return value
+
+
+def load_node_config(path: Path) -> NodeConfig:
+    try:
+        document = json5.loads(
+            path.read_text(encoding="utf-8"), allow_duplicate_keys=False
+        )
+    except ValueError as error:
+        raise ValueError(f"{path}: invalid JSON5: {error}") from error
+
+    root = _object(document, str(path))
+    _validate_keys(root, {"camera", "publisher"}, str(path))
+
+    camera = _object(root["camera"], f"{path}.camera")
+    _validate_keys(camera, {"device", "width", "jpeg_quality"}, f"{path}.camera")
+
+    publisher = _object(root["publisher"], f"{path}.publisher")
+    _validate_keys(
+        publisher,
+        {
+            "key_expression",
+            "frame_delay_seconds",
+            "congestion_control",
+            "reliability",
+        },
+        f"{path}.publisher",
+    )
+
+    return NodeConfig(
+        camera=CameraConfig(
+            device=_integer(camera, "device", f"{path}.camera", minimum=0),
+            width=_integer(camera, "width", f"{path}.camera", minimum=1),
+            jpeg_quality=_integer(
+                camera, "jpeg_quality", f"{path}.camera", minimum=0, maximum=100
+            ),
+        ),
+        publisher=PublisherConfig(
+            key_expression=_key_expression(
+                publisher, "key_expression", f"{path}.publisher"
+            ),
+            frame_delay_seconds=_non_negative_number(
+                publisher, "frame_delay_seconds", f"{path}.publisher"
+            ),
+            congestion_control=_choice(
+                publisher,
+                "congestion_control",
+                CONGESTION_CONTROLS,
+                f"{path}.publisher",
+            ),
+            reliability=_choice(
+                publisher,
+                "reliability",
+                RELIABILITIES,
+                f"{path}.publisher",
+            ),
+        ),
+    )
 
 
 def publish_frames(
@@ -175,40 +256,37 @@ def publish_frames(
         time.sleep(delay)
 
 
-def run(
-    config: zenoh.Config,
-    *,
-    device: int,
-    key: str,
-    width: int,
-    quality: int,
-    delay: float,
-) -> None:
+def run(zenoh_config: zenoh.Config, node_config: NodeConfig) -> None:
     zenoh.init_log_from_env_or("error")
+    camera = node_config.camera
+    publisher_config = node_config.publisher
 
     print("[INFO] Open Zenoh session...")
-    with zenoh.open(config) as session:
-        print(f"[INFO] Open camera device {device}...")
-        capture = cv2.VideoCapture(device)
+    with zenoh.open(zenoh_config) as session:
+        print(f"[INFO] Open camera device {camera.device}...")
+        capture = cv2.VideoCapture(camera.device)
         if not capture.isOpened():
             capture.release()
-            raise RuntimeError(f"could not open camera device {device}")
+            raise RuntimeError(f"could not open camera device {camera.device}")
 
         try:
             with session.declare_publisher(
-                key,
+                publisher_config.key_expression,
                 encoding="image/jpeg",
-                congestion_control=zenoh.CongestionControl.DROP,
-                reliability=zenoh.Reliability.BEST_EFFORT,
+                congestion_control=publisher_config.congestion_control,
+                reliability=publisher_config.reliability,
             ) as publisher:
-                print(f"[INFO] Publishing {width}px JPEG frames on '{key}'...")
+                print(
+                    f"[INFO] Publishing {camera.width}px JPEG frames on "
+                    f"'{publisher_config.key_expression}'..."
+                )
                 print("[INFO] Press CTRL-C to quit.")
                 publish_frames(
                     capture,
                     publisher,
-                    width=width,
-                    quality=quality,
-                    delay=delay,
+                    width=camera.width,
+                    quality=camera.jpeg_quality,
+                    delay=publisher_config.frame_delay_seconds,
                 )
         finally:
             capture.release()
@@ -218,15 +296,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     try:
-        config = zenoh_config_from_args(args)
-        run(
-            config,
-            device=args.device,
-            key=args.key,
-            width=args.width,
-            quality=args.quality,
-            delay=args.delay,
-        )
+        node_config = load_node_config(args.node_config)
+        zenoh_config = zenoh.Config.from_file(args.zenoh_config)
+        run(zenoh_config, node_config)
     except KeyboardInterrupt:
         print("\n[INFO] Stopped.")
     except (RuntimeError, ValueError, OSError, cv2.error, zenoh.ZError) as error:

@@ -1,0 +1,13 @@
+{
+  "camera": {
+    "device": 0,
+    "width": 500,
+    "jpeg_quality": 95
+  },
+  "publisher": {
+    "key_expression": "camera/frame",
+    "frame_delay_seconds": 0.05,
+    "congestion_control": "drop",
+    "reliability": "best_effort"
+  }
+}

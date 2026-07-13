@@ -4,7 +4,7 @@
 
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
-- OpenCV から認識できるカメラ
+- OpenCVから認識できるカメラ
 
 依存パッケージをインストールします。
 
@@ -12,68 +12,122 @@
 $ uv sync
 ```
 
-次のコマンドがヘルプを表示すれば、Python 環境の準備は完了です。
+## 設定ファイルの準備
+
+リポジトリで管理されているexampleを、既定の実行時パスへコピーします。
 
 ```console
-$ uv run node.py --help
+$ cp config/zenoh-config.example.json5 config/zenoh-config.json5
+$ cp config/node-config.example.json config/node-config.json5
 ```
+
+実行時設定はGitの管理対象外です。マシン固有のカメラデバイスやネットワークendpointを誤ってコミットすることを防ぎます。
+
+ノードは起動時に次の2ファイルを読み込みます。
+
+| ファイル | 用途 |
+| --- | --- |
+| `config/zenoh-config.json5` | Zenohのmode、endpoint、scouting、transport設定 |
+| `config/node-config.json5` | カメラ、画像、key expression、publisher QoS設定 |
+
+どちらもJSON5として読み込まれます。ノード設定では、設定ミスを起動時に検出するため、必須キーの欠落、未知のキー、重複キーをエラーにします。
+
+ノードのexampleは`.json` suffixに合わせて意図的にstrict JSONで記述しています。JSONはJSON5のsubsetなので、内容を変えず`node-config.json5`へコピーした後はJSON5の機能も利用できます。
+
+既定パスはcurrent working directoryから解決されます。既定パスを使う場合はリポジトリrootから起動し、別の場所から起動する場合は後述の2つの明示パスを指定してください。
 
 ## カメラの確認
 
-Linux では、接続された Video4Linux デバイスを確認します。
+Linuxでは、接続されたVideo4Linuxデバイスを確認します。
 
 ```console
 $ ls /dev/video*
 ```
 
-`could not open camera device` と表示される場合は、次を確認してください。
+使用するデバイス番号を`config/node-config.json5`の`camera.device`に設定します。`could not open camera device`と表示される場合は、次を確認してください。
 
-- `--device` に指定した番号の `/dev/video*` が存在する
-- 実行ユーザーにデバイスの読み書き権限がある（Linux では `video` group も確認する）
+- 対応する`/dev/video*`デバイスが存在する
+- 実行ユーザーにデバイスの読み書き権限がある（Linuxでは`video` groupも確認する）
 - 他のプロセスがカメラを占有していない
 
-Docker などのコンテナ内で実行する場合は、カメラデバイスをコンテナへ渡す必要があります。
+コンテナ内で実行する場合は、カメラデバイスをコンテナへ渡す必要があります。
 
-## Zenoh の接続
+## Zenohの接続
 
-設定を指定しない場合は Zenoh のデフォルト設定を使います。同一ネットワーク上の peer は multicast scouting により自動検出されます。
+Zenoh Pythonは`zenoh.Config.from_file()`で接続設定を直接読み込みます。完全なschemaは公式の[Zenoh deployment guide](https://zenoh.io/docs/getting-started/deployment/)と[`DEFAULT_CONFIG.json5`](https://github.com/eclipse-zenoh/zenoh/blob/main/DEFAULT_CONFIG.json5)を参照してください。
 
-Zenoh router へ client として接続する場合は、CLI から指定できます。
+同梱のexampleはpeerとして動作し、TCP port 7447でlistenしながらmulticast scoutingも有効にします。
 
-```console
-$ uv run node.py --mode client --connect tcp/192.168.1.10:7447
+```json5
+{
+  mode: "peer",
+  listen: {
+    endpoints: ["tcp/0.0.0.0:7447"],
+  },
+  connect: {
+    endpoints: [],
+  },
+  scouting: {
+    multicast: {
+      enabled: true,
+    },
+  },
+}
 ```
 
-複数の endpoint は `--connect` を繰り返して指定します。
+`0.0.0.0`はローカルのwildcard bind addressです。すべてのローカルIPv4 interfaceで接続を受け付ける指定であり、相手側の`connect.endpoints`に書くIPではありません。相手側には、このホストへ到達可能なIPを使い、たとえば`tcp/192.168.1.20:7447`と指定します。
+
+publisher側でport 7447が未使用である必要があります。また、`0.0.0.0`でlistenすると到達可能なすべてのIPv4 interfaceへZenoh endpointを公開します。信頼できないnetworkではbind addressやfirewall ruleを制限してください。
+
+既存のrouterへ接続する場合はclient modeにし、routerへ到達可能なアドレスを指定します。
+
+```json5
+{
+  mode: "client",
+  connect: {
+    endpoints: ["tcp/192.168.1.10:7447"],
+  },
+  scouting: {
+    multicast: {
+      enabled: false,
+    },
+  },
+}
+```
+
+すでにlistenしているpeerへ直接接続する場合は、次のように指定します。
+
+```json5
+{
+  mode: "peer",
+  connect: {
+    endpoints: ["tcp/192.168.1.20:7447"],
+  },
+  scouting: {
+    multicast: {
+      enabled: false,
+    },
+  },
+}
+```
+
+1本の直接TCP接続について、接続開始側は片方だけで十分です。一方が固定portでlistenし、もう一方がそのhostとportへconnectします。multicast scoutingが利用できる環境では、明示的なendpoint自体が不要な場合もあります。
+
+## 別の場所にある設定ファイルを使う
+
+CLIに残るのは、2つの設定ファイルを選ぶオプションだけです。
 
 ```console
 $ uv run node.py \
-    --mode client \
-    --connect tcp/router-a:7447 \
-    --connect tcp/router-b:7447
+    --zenoh-config /etc/camera-node/zenoh.json5 \
+    --node-config /etc/camera-node/node.json5
 ```
 
-JSON5 設定ファイルも利用できます。
-
-```console
-$ uv run node.py --config zenoh.json5
-```
-
-設定の優先順位は、低い方から「Zenoh の既定値」「`--config` の設定ファイル」「`--mode`、`--connect`、`--listen` などの専用オプション」「`--cfg`」です。
-
-multicast scouting を無効にする場合は `--no-multicast-scouting` を指定します。その他の設定は、現行の Zenoh Python examples と同様に `--cfg KEY:VALUE` で上書きできます。
-
-```console
-$ uv run node.py \
-    --no-multicast-scouting \
-    --cfg 'transport/unicast/max_links:2'
-```
-
-`VALUE` は Zenoh が対象項目に期待する JSON5 値で指定します。
+カメラ、publisher、Zenohの個別設定をCLIから上書きすることはできません。
 
 ## 開発時の検証
 
-変更後は formatter、lint、型検査、単体テストを実行します。
+変更後はformatter、lint、型検査、単体テストを実行します。
 
 ```console
 $ uv run ruff format --check .
