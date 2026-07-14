@@ -19,7 +19,7 @@ $ uv sync
 
 ```console
 $ cp config/zenoh-config.example.json5 config/zenoh-config.json5
-$ cp config/node-config.example.json config/node-config.json5
+$ cp config/node-config.example.json5 config/node-config.json5
 ```
 
 実行時設定はGitの管理対象外です。マシン固有のカメラデバイスやネットワークendpointを誤ってコミットすることを防ぎます。
@@ -31,9 +31,7 @@ $ cp config/node-config.example.json config/node-config.json5
 | `config/zenoh-config.json5` | Zenohのmode、endpoint、scouting、transport設定 |
 | `config/node-config.json5` | カメラsource、出力、key階層、frequency、publisher QoS設定 |
 
-どちらもJSON5として読み込まれます。ノード設定では、設定ミスを起動時に検出するため、必須キーの欠落、未知のキー、重複キーをエラーにします。
-
-ノードのexampleは`.json` suffixに合わせて意図的にstrict JSONで記述しています。JSONはJSON5のsubsetなので、内容を変えず`node-config.json5`へコピーした後はJSON5の機能も利用できます。
+どちらもJSON5を使用します。ノード設定では、設定ミスを起動時に検出するため、必須キーの欠落、未知のキー、重複キーをエラーにします。
 
 既定パスはcurrent working directoryから解決されます。既定パスを使う場合はリポジトリrootから起動し、別の場所から起動する場合は後述の2つの明示パスを指定してください。
 

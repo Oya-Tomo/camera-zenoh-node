@@ -9,7 +9,7 @@ OpenCVで1台以上のカメラ映像を取得してJPEGに変換し、1つの�
 ```console
 $ uv sync
 $ cp config/zenoh-config.example.json5 config/zenoh-config.json5
-$ cp config/node-config.example.json config/node-config.json5
+$ cp config/node-config.example.json5 config/node-config.json5
 ```
 
 このホストのカメラに合わせて`config/node-config.json5`を編集してから起動します。

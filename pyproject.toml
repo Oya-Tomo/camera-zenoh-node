@@ -1,6 +1,6 @@
 [project]
 name = "camera-zenoh-node"
-version = "0.1.1"
+version = "0.1.2"
 description = "Publish JPEG-encoded camera frames over Zenoh"
 readme = "README.md"
 requires-python = ">=3.13"
