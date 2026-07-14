@@ -24,5 +24,5 @@ The example contains placeholder sources for two cameras and must be adjusted be
 
 - [Setup](docs/en/setup.md)
 - [Usage and data contract](docs/en/usage.md)
-- [OpenCV viewer example](examples/README.md)
+- [Stream viewer example](examples/README.md)
 - [日本語ドキュメント](README_ja.md)

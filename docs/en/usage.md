@@ -123,10 +123,10 @@ Each Zenoh sample contains one frame.
 
 ## Decoding in a subscriber
 
-The ready-to-run OpenCV viewer subscribes to one concrete camera key and keeps only the newest received JPEG, so a slow display does not build an unbounded queue of stale frames:
+The ready-to-run viewer uses OpenCV for JPEG decoding and pygame for cross-platform display. It subscribes to one concrete camera key and keeps only the newest received JPEG, so a slow display does not build an unbounded queue of stale frames:
 
 ```console
-$ uv run examples/viewer.py camera/front
+$ uv run --group example examples/viewer.py camera/front
 ```
 
 Its default Zenoh configuration connects to `tcp/127.0.0.1:7447`. Press `q`, `Esc`, or close the window to stop it. See the [viewer example](../../examples/README.md) for a different endpoint or a second camera.

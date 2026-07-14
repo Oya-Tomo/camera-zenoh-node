@@ -1,23 +1,24 @@
-"""Display JPEG frames received over Zenoh with OpenCV."""
+"""Display JPEG frames received over Zenoh with pygame."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 from collections.abc import Sequence
-from contextlib import suppress
 from pathlib import Path
 from threading import Lock
 
 import cv2
 import numpy as np
+import pygame
 import zenoh
 
 DEFAULT_ZENOH_CONFIG_PATH = Path(__file__).with_name("viewer-zenoh-config.json5")
 WINDOW_NAME = "camera-zenoh-node"
+DEFAULT_WINDOW_SIZE = (640, 480)
 DISPLAY_POLL_INTERVAL_MS = 10
 INVALID_FRAME_LOG_INTERVAL = 10
-QUIT_KEYS = {27, ord("q")}
+QUIT_KEYS = {pygame.K_ESCAPE, pygame.K_q}
 
 
 def parse_concrete_key(value: str) -> str:
@@ -62,7 +63,7 @@ def decode_jpeg(jpeg: bytes) -> cv2.typing.MatLike | None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Display a Zenoh JPEG stream with OpenCV.",
+        description="Display a Zenoh JPEG stream.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -83,8 +84,10 @@ def build_parser() -> argparse.ArgumentParser:
 def display_frames(latest_frame: LatestFrame) -> None:
     displayed_sequence = 0
     invalid_frames = 0
+    pygame.display.init()
     try:
-        cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+        pygame.display.set_caption(WINDOW_NAME)
+        screen = pygame.display.set_mode(DEFAULT_WINDOW_SIZE)
         while True:
             jpeg, sequence = latest_frame.snapshot()
             if jpeg is not None and sequence != displayed_sequence:
@@ -102,22 +105,26 @@ def display_frames(latest_frame: LatestFrame) -> None:
                             file=sys.stderr,
                         )
                 else:
-                    cv2.imshow(WINDOW_NAME, frame)
+                    if not frame.flags.c_contiguous:
+                        frame = np.ascontiguousarray(frame)
+                    height, width = frame.shape[:2]
+                    frame_size = (width, height)
+                    if screen.get_size() != frame_size:
+                        screen = pygame.display.set_mode(frame_size)
+                    frame_surface = pygame.image.frombuffer(
+                        frame.data, frame_size, "BGR"
+                    )
+                    screen.blit(frame_surface, (0, 0))
+                    pygame.display.flip()
 
-            key = cv2.waitKey(DISPLAY_POLL_INTERVAL_MS) & 0xFF
-            if key in QUIT_KEYS:
-                return
-            try:
-                window_visible = cv2.getWindowProperty(
-                    WINDOW_NAME, cv2.WND_PROP_VISIBLE
-                )
-            except cv2.error:
-                return
-            if window_visible < 1:
-                return
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT or (
+                    event.type == pygame.KEYDOWN and event.key in QUIT_KEYS
+                ):
+                    return
+            pygame.time.wait(DISPLAY_POLL_INTERVAL_MS)
     finally:
-        with suppress(cv2.error):
-            cv2.destroyWindow(WINDOW_NAME)
+        pygame.display.quit()
 
 
 def run(zenoh_config: zenoh.Config, key_expression: str) -> None:
@@ -143,7 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         run(zenoh_config, args.key_expression)
     except KeyboardInterrupt:
         print("\n[INFO] Stopped.")
-    except (OSError, ValueError, cv2.error, zenoh.ZError) as error:
+    except (OSError, ValueError, cv2.error, pygame.error, zenoh.ZError) as error:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 1
     return 0
