@@ -123,10 +123,10 @@ $ uv run node.py --help
 
 ## Subscriberでのデコード
 
-実行可能なOpenCV viewerは、1台のconcreteなcamera keyをsubscribeし、受信した最新JPEGだけを保持します。表示が遅れても古いframeのqueueが際限なく蓄積しません。
+実行可能なviewerは、JPEGのdecodeにOpenCV、cross-platform表示にpygameを使います。1台のconcreteなcamera keyをsubscribeし、受信した最新JPEGだけを保持するため、表示が遅れても古いframeのqueueが際限なく蓄積しません。
 
 ```console
-$ uv run examples/viewer.py camera/front
+$ uv run --group example examples/viewer.py camera/front
 ```
 
 defaultのZenoh設定は`tcp/127.0.0.1:7447`へ接続します。終了するときは`q`、`Esc`を押すかwindowを閉じます。別endpointや2台目の表示は[viewer example](../../examples/README_ja.md)を参照してください。

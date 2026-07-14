@@ -3,10 +3,11 @@ import json
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import cv2
 import numpy as np
+import pygame
 
 from examples import viewer
 
@@ -54,21 +55,45 @@ class DisplayFramesTests(unittest.TestCase):
         latest_frame = viewer.LatestFrame()
         latest_frame.update(b"jpeg")
         frame = np.zeros((2, 3, 3), dtype=np.uint8)
+        initial_screen = MagicMock(spec=pygame.Surface)
+        initial_screen.get_size.return_value = viewer.DEFAULT_WINDOW_SIZE
+        frame_screen = MagicMock(spec=pygame.Surface)
+        frame_surface = MagicMock(spec=pygame.Surface)
+        quit_event = MagicMock(type=pygame.KEYDOWN, key=pygame.K_q)
 
         with (
             patch("examples.viewer.decode_jpeg", return_value=frame),
-            patch.object(cv2, "namedWindow") as named_window,
-            patch.object(cv2, "imshow") as imshow,
-            patch.object(cv2, "waitKey", return_value=ord("q")),
-            patch.object(cv2, "getWindowProperty") as get_window_property,
-            patch.object(cv2, "destroyWindow") as destroy_window,
+            patch.object(pygame.display, "init") as display_init,
+            patch.object(pygame.display, "set_caption") as set_caption,
+            patch.object(
+                pygame.display,
+                "set_mode",
+                side_effect=[initial_screen, frame_screen],
+            ) as set_mode,
+            patch.object(
+                pygame.image, "frombuffer", return_value=frame_surface
+            ) as frombuffer,
+            patch.object(pygame.display, "flip") as flip,
+            patch.object(pygame.event, "get", return_value=[quit_event]),
+            patch.object(pygame.time, "wait") as wait,
+            patch.object(pygame.display, "quit") as display_quit,
         ):
             viewer.display_frames(latest_frame)
 
-        named_window.assert_called_once_with(viewer.WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
-        imshow.assert_called_once_with(viewer.WINDOW_NAME, frame)
-        get_window_property.assert_not_called()
-        destroy_window.assert_called_once_with(viewer.WINDOW_NAME)
+        display_init.assert_called_once_with()
+        set_caption.assert_called_once_with(viewer.WINDOW_NAME)
+        self.assertEqual(
+            set_mode.call_args_list,
+            [call(viewer.DEFAULT_WINDOW_SIZE), call((3, 2))],
+        )
+        buffer, size, pixel_format = frombuffer.call_args.args
+        self.assertIs(buffer.obj, frame)
+        self.assertEqual(size, (3, 2))
+        self.assertEqual(pixel_format, "BGR")
+        frame_screen.blit.assert_called_once_with(frame_surface, (0, 0))
+        flip.assert_called_once_with()
+        wait.assert_not_called()
+        display_quit.assert_called_once_with()
 
     def test_invalid_frame_warnings_are_throttled_until_window_closes(self) -> None:
         latest_frame = MagicMock(spec=viewer.LatestFrame)
@@ -76,41 +101,47 @@ class DisplayFramesTests(unittest.TestCase):
             (f"invalid-{sequence}".encode(), sequence) for sequence in range(1, 11)
         ]
         stderr = StringIO()
+        screen = MagicMock(spec=pygame.Surface)
+        close_event = MagicMock(type=pygame.QUIT)
 
         with (
             redirect_stderr(stderr),
             patch("examples.viewer.decode_jpeg", return_value=None),
-            patch.object(cv2, "namedWindow"),
-            patch.object(cv2, "imshow") as imshow,
-            patch.object(cv2, "waitKey", return_value=-1),
-            patch.object(cv2, "getWindowProperty", side_effect=[1.0] * 9 + [0.0]),
-            patch.object(cv2, "destroyWindow") as destroy_window,
+            patch.object(pygame.display, "init"),
+            patch.object(pygame.display, "set_caption"),
+            patch.object(pygame.display, "set_mode", return_value=screen),
+            patch.object(pygame.image, "frombuffer") as frombuffer,
+            patch.object(pygame.display, "flip") as flip,
+            patch.object(pygame.event, "get", side_effect=[[]] * 9 + [[close_event]]),
+            patch.object(pygame.time, "wait") as wait,
+            patch.object(pygame.display, "quit") as display_quit,
         ):
             viewer.display_frames(latest_frame)
 
         self.assertEqual(stderr.getvalue().count("[WARNING]"), 2)
         self.assertIn("(1 total)", stderr.getvalue())
         self.assertIn("(10 total)", stderr.getvalue())
-        imshow.assert_not_called()
-        destroy_window.assert_called_once_with(viewer.WINDOW_NAME)
+        frombuffer.assert_not_called()
+        flip.assert_not_called()
+        self.assertEqual(wait.call_count, 9)
+        display_quit.assert_called_once_with()
 
-    def test_window_property_errors_are_treated_as_window_close(self) -> None:
+    def test_display_errors_still_close_the_backend(self) -> None:
         latest_frame = MagicMock(spec=viewer.LatestFrame)
         latest_frame.snapshot.return_value = (None, 0)
 
         with (
-            patch.object(cv2, "namedWindow"),
-            patch.object(cv2, "waitKey", return_value=-1),
+            patch.object(pygame.display, "init"),
+            patch.object(pygame.display, "set_caption"),
             patch.object(
-                cv2, "getWindowProperty", side_effect=cv2.error("window closed")
+                pygame.display, "set_mode", side_effect=pygame.error("display failed")
             ),
-            patch.object(
-                cv2, "destroyWindow", side_effect=cv2.error("already destroyed")
-            ) as destroy_window,
+            patch.object(pygame.display, "quit") as display_quit,
+            self.assertRaisesRegex(pygame.error, "display failed"),
         ):
             viewer.display_frames(latest_frame)
 
-        destroy_window.assert_called_once_with(viewer.WINDOW_NAME)
+        display_quit.assert_called_once_with()
 
 
 class ViewerRuntimeTests(unittest.TestCase):
