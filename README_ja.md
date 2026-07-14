@@ -24,5 +24,5 @@ exampleには2台分のplaceholder sourceが含まれるため、初回起動前
 
 - [セットアップ](docs/ja/setup.md)
 - [使い方と配信データ仕様](docs/ja/usage.md)
-- [OpenCV viewer example](examples/README_ja.md)
+- [stream viewer example](examples/README_ja.md)
 - [English documentation](README.md)

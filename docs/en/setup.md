@@ -5,7 +5,7 @@
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - A camera recognized by OpenCV
-- A desktop display when using the optional OpenCV viewer example
+- A desktop display when using the optional stream viewer example
 
 Install the project dependencies:
 
@@ -142,8 +142,8 @@ Camera, publisher, and Zenoh values cannot be overridden individually from the C
 Run the formatter, linter, type checker, and unit tests after making changes:
 
 ```console
-$ uv run ruff format --check .
-$ uv run ruff check .
-$ uv run pyright
-$ uv run python -m unittest discover -v
+$ uv run --group example ruff format --check .
+$ uv run --group example ruff check .
+$ uv run --group example pyright
+$ uv run --group example python -m unittest discover -v
 ```
