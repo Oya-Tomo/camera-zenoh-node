@@ -12,7 +12,7 @@ Stop it with `Ctrl-C`. All configured cameras run in one process and share the s
 
 ## Node configuration
 
-`config/node-config.json5` contains the node key hierarchy and per-camera settings. A complete strict-JSON example is available at [`config/node-config.example.json`](../../config/node-config.example.json); the runtime file is parsed as JSON5.
+`config/node-config.json5` contains the node key hierarchy and per-camera settings. A complete JSON5 example is available at [`config/node-config.example.json5`](../../config/node-config.example.json5).
 
 ```json5
 {

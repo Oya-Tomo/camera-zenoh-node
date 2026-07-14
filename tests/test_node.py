@@ -177,7 +177,7 @@ class NodeConfigTests(unittest.TestCase):
                 node.build_parser().parse_args(arguments)
 
     def test_example_configs_are_valid(self) -> None:
-        node_config = node.load_node_config(Path("config/node-config.example.json"))
+        node_config = node.load_node_config(Path("config/node-config.example.json5"))
         zenoh_config = node.zenoh.Config.from_file(
             Path("config/zenoh-config.example.json5")
         )

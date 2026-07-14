@@ -19,7 +19,7 @@ Copy the version-controlled examples to the default runtime paths:
 
 ```console
 $ cp config/zenoh-config.example.json5 config/zenoh-config.json5
-$ cp config/node-config.example.json config/node-config.json5
+$ cp config/node-config.example.json5 config/node-config.json5
 ```
 
 The runtime files are ignored by Git so that machine-specific camera devices and network endpoints are not committed accidentally.
@@ -31,9 +31,7 @@ The node reads both files at startup:
 | `config/zenoh-config.json5` | Zenoh mode, endpoints, scouting, and transport settings |
 | `config/node-config.json5` | Camera sources, output settings, key hierarchy, frequency, and publisher QoS |
 
-Both files accept JSON5. The node configuration rejects missing, unknown, and duplicate keys to make configuration mistakes fail at startup.
-
-The node example deliberately uses strict JSON and a `.json` suffix. JSON is a subset of JSON5, so copying it to `node-config.json5` preserves the same content while allowing JSON5 features in the runtime file.
+Both files use JSON5. The node configuration rejects missing, unknown, and duplicate keys to make configuration mistakes fail at startup.
 
 Default paths are resolved from the current working directory. Run the node from the repository root when using them, or pass both explicit paths as described below.
 
