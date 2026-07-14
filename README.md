@@ -9,7 +9,7 @@ A configuration-driven Python node that captures one or more cameras with OpenCV
 ```console
 $ uv sync
 $ cp config/zenoh-config.example.json5 config/zenoh-config.json5
-$ cp config/node-config.example.json config/node-config.json5
+$ cp config/node-config.example.json5 config/node-config.json5
 ```
 
 Edit `config/node-config.json5` for the cameras on this host, then run:

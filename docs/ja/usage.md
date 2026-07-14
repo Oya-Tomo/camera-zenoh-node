@@ -12,7 +12,7 @@ $ uv run node.py
 
 ## ノード設定
 
-`config/node-config.json5`には、ノードのkey階層とカメラごとの設定を記述します。strict JSONの完全なexampleは[`config/node-config.example.json`](../../config/node-config.example.json)にあり、実行時ファイルはJSON5として読み込まれます。
+`config/node-config.json5`には、ノードのkey階層とカメラごとの設定を記述します。完全なJSON5 exampleは[`config/node-config.example.json5`](../../config/node-config.example.json5)にあります。
 
 ```json5
 {
