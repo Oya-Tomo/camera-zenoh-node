@@ -5,7 +5,7 @@
 - Python 3.13
 - [uv](https://docs.astral.sh/uv/)
 - OpenCVから認識できるカメラ
-- OpenCV viewer exampleを使う場合はdesktop display
+- stream viewer exampleを使う場合はdesktop display
 
 依存パッケージをインストールします。
 
@@ -142,8 +142,8 @@ $ uv run node.py \
 変更後はformatter、lint、型検査、単体テストを実行します。
 
 ```console
-$ uv run ruff format --check .
-$ uv run ruff check .
-$ uv run pyright
-$ uv run python -m unittest discover -v
+$ uv run --group example ruff format --check .
+$ uv run --group example ruff check .
+$ uv run --group example pyright
+$ uv run --group example python -m unittest discover -v
 ```
