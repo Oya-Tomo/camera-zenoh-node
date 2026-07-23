@@ -12,20 +12,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Thread
-from typing import Annotated, Literal, Self
 
 import cv2
-import json5
 import zenoh
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StrictStr,
-    ValidationError,
-    field_validator,
-    model_validator,
-)
+
+from config import CameraConfig, NodeConfig, load_node_config
 
 DEFAULT_ZENOH_CONFIG_PATH = Path("config/zenoh-config.json5")
 DEFAULT_NODE_CONFIG_PATH = Path("config/node-config.json5")
@@ -47,127 +38,6 @@ RELIABILITIES = {
     "best_effort": zenoh.Reliability.BEST_EFFORT,
     "reliable": zenoh.Reliability.RELIABLE,
 }
-
-NonNegativeInt = Annotated[int, Field(strict=True, ge=0)]
-PositiveInt = Annotated[int, Field(strict=True, ge=1)]
-JpegQuality = Annotated[int, Field(strict=True, ge=0, le=100)]
-PositiveFiniteFloat = Annotated[float, Field(gt=0, allow_inf_nan=False)]
-CongestionControlName = Literal["drop", "block", "block_first"]
-ReliabilityName = Literal["best_effort", "reliable"]
-
-
-def _validate_concrete_key(value: str, location: str) -> str:
-    if not value.strip():
-        raise ValueError(f"{location} must be a non-empty string")
-    try:
-        zenoh.KeyExpr(value)
-    except zenoh.ZError as error:
-        raise ValueError(
-            f"{location} must be a valid Zenoh key expression: {error}"
-        ) from error
-    if "*" in value:
-        raise ValueError(f"{location} must be a concrete Zenoh key without wildcards")
-    return value
-
-
-class _ConfigModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class CameraSource(_ConfigModel):
-    index: NonNegativeInt | None = None
-    path: StrictStr | None = None
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str | None) -> str | None:
-        if value is not None and not value.strip():
-            raise ValueError("path must be a non-empty string")
-        return value
-
-    @model_validator(mode="after")
-    def validate_selector(self) -> Self:
-        if (self.index is None) == (self.path is None):
-            raise ValueError("exactly one of index or path is required")
-        return self
-
-    @property
-    def opencv_source(self) -> int | str:
-        if self.index is not None:
-            return self.index
-        assert self.path is not None
-        return self.path
-
-
-class PublisherConfig(_ConfigModel):
-    publish_frequency_hz: PositiveFiniteFloat
-    congestion_control: CongestionControlName
-    reliability: ReliabilityName
-
-    @field_validator("publish_frequency_hz", mode="before")
-    @classmethod
-    def validate_frequency_type(cls, value: object) -> object:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError("publish_frequency_hz must be a number")
-        return value
-
-    @field_validator("publish_frequency_hz")
-    @classmethod
-    def validate_frequency_period(cls, value: float) -> float:
-        try:
-            period = 1.0 / value
-        except OverflowError:
-            raise ValueError(
-                "publish_frequency_hz must produce a finite period"
-            ) from None
-        if not math.isfinite(period) or period <= 0:
-            raise ValueError("publish_frequency_hz must produce a finite period")
-        return value
-
-
-class CameraConfig(_ConfigModel):
-    device_key: StrictStr
-    source: CameraSource
-    size: tuple[PositiveInt, PositiveInt]
-    jpeg_quality: JpegQuality
-    publisher: PublisherConfig
-
-    @field_validator("device_key")
-    @classmethod
-    def validate_device_key(cls, value: str) -> str:
-        value = _validate_concrete_key(value, "device_key")
-        if "/" in value:
-            raise ValueError("device_key must be a single key segment")
-        return value
-
-
-class NodeConfig(_ConfigModel):
-    base_key: StrictStr
-    cameras: Annotated[tuple[CameraConfig, ...], Field(min_length=1)]
-
-    @field_validator("base_key")
-    @classmethod
-    def validate_base_key(cls, value: str) -> str:
-        return _validate_concrete_key(value, "base_key")
-
-    @model_validator(mode="after")
-    def validate_cameras(self) -> Self:
-        device_keys: set[str] = set()
-        sources: set[int | str] = set()
-        for camera in self.cameras:
-            if camera.device_key in device_keys:
-                raise ValueError(f"duplicate device_key: {camera.device_key!r}")
-            device_keys.add(camera.device_key)
-
-            source = camera.source.opencv_source
-            if source in sources:
-                raise ValueError(f"duplicate camera source: {source!r}")
-            sources.add(source)
-
-            _validate_concrete_key(
-                f"{self.base_key}/{camera.device_key}", "derived publisher key"
-            )
-        return self
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -191,19 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Camera publisher JSON5 configuration file.",
     )
     return parser
-
-
-def load_node_config(path: Path) -> NodeConfig:
-    try:
-        document = json5.loads(
-            path.read_text(encoding="utf-8"), allow_duplicate_keys=False
-        )
-    except ValueError as error:
-        raise ValueError(f"{path}: invalid JSON5: {error}") from error
-    try:
-        return NodeConfig.model_validate(document)
-    except ValidationError as error:
-        raise ValueError(f"{path}: invalid node configuration:\n{error}") from error
 
 
 def publish_frames(
@@ -368,7 +225,7 @@ def run(zenoh_config: zenoh.Config, node_config: NodeConfig) -> None:
                     f"could not open camera '{camera.device_key}' from {opencv_source!r}"
                 )
 
-            key_expression = f"{node_config.base_key}/{camera.device_key}"
+            key_expression = node_config.publisher_key(camera)
             publisher = resources.enter_context(
                 session.declare_publisher(
                     key_expression,

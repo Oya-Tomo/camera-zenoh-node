@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import copy
-import json
-import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
@@ -14,34 +11,39 @@ from unittest.mock import MagicMock, call, patch
 import numpy as np
 
 import node
+from config import CameraConfig, NodeConfig
 
-VALID_NODE_CONFIG: dict[str, object] = {
-    "base_key": "camera/node",
-    "cameras": [
-        {
-            "device_key": "front",
-            "source": {"path": "/dev/v4l/by-id/usb-Example_Front_Camera-video-index0"},
-            "size": [1280, 720],
-            "jpeg_quality": 90,
-            "publisher": {
-                "publish_frequency_hz": 30.0,
-                "congestion_control": "drop",
-                "reliability": "best_effort",
+NODE_CONFIG = NodeConfig.model_validate(
+    {
+        "zenoh_key_prefix": "camera/node",
+        "cameras": [
+            {
+                "device_key": "front",
+                "source": {
+                    "path": "/dev/v4l/by-id/usb-Example_Front_Camera-video-index0"
+                },
+                "size": [1280, 720],
+                "jpeg_quality": 90,
+                "publisher": {
+                    "publish_frequency_hz": 30.0,
+                    "congestion_control": "drop",
+                    "reliability": "best_effort",
+                },
             },
-        },
-        {
-            "device_key": "rear",
-            "source": {"index": 1},
-            "size": [640, 480],
-            "jpeg_quality": 85,
-            "publisher": {
-                "publish_frequency_hz": 20,
-                "congestion_control": "block",
-                "reliability": "reliable",
+            {
+                "device_key": "rear",
+                "source": {"index": 1},
+                "size": [640, 480],
+                "jpeg_quality": 85,
+                "publisher": {
+                    "publish_frequency_hz": 20,
+                    "congestion_control": "block",
+                    "reliability": "reliable",
+                },
             },
-        },
-    ],
-}
+        ],
+    }
+)
 
 
 class ManualClock:
@@ -142,14 +144,7 @@ class FakePublisher:
             self.event.set()
 
 
-def load_document(document: object) -> node.NodeConfig:
-    with tempfile.TemporaryDirectory() as directory:
-        path = Path(directory) / "node-config.json5"
-        path.write_text(json.dumps(document), encoding="utf-8")
-        return node.load_node_config(path)
-
-
-class NodeConfigTests(unittest.TestCase):
+class NodeCliTests(unittest.TestCase):
     def test_default_config_paths(self) -> None:
         args = node.build_parser().parse_args([])
 
@@ -175,168 +170,6 @@ class NodeConfigTests(unittest.TestCase):
                 self.assertRaises(SystemExit),
             ):
                 node.build_parser().parse_args(arguments)
-
-    def test_example_configs_are_valid(self) -> None:
-        node_config = node.load_node_config(Path("config/node-config.example.json5"))
-        zenoh_config = node.zenoh.Config.from_file(
-            Path("config/zenoh-config.example.json5")
-        )
-
-        self.assertEqual(node_config.base_key, "camera")
-        self.assertEqual(
-            [camera.device_key for camera in node_config.cameras], ["front", "rear"]
-        )
-        self.assertEqual(json.loads(zenoh_config.get_json("mode")), "peer")
-
-    def test_node_config_accepts_json5_and_both_source_types(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "node-config.json5"
-            path.write_text(
-                """
-                {
-                  // JSON5 comments and trailing commas are supported.
-                  base_key: 'site/camera',
-                  cameras: [
-                    {
-                      device_key: 'front',
-                      source: {path: '/dev/v4l/by-id/front'},
-                      size: [1280, 720],
-                      jpeg_quality: 80,
-                      publisher: {
-                        publish_frequency_hz: 30,
-                        congestion_control: 'block',
-                        reliability: 'reliable',
-                      },
-                    },
-                    {
-                      device_key: 'rear',
-                      source: {index: 1},
-                      size: [640, 480],
-                      jpeg_quality: 75,
-                      publisher: {
-                        publish_frequency_hz: 15.5,
-                        congestion_control: 'drop',
-                        reliability: 'best_effort',
-                      },
-                    },
-                  ],
-                }
-                """,
-                encoding="utf-8",
-            )
-
-            config = node.load_node_config(path)
-
-        self.assertEqual(config.cameras[0].source.opencv_source, "/dev/v4l/by-id/front")
-        self.assertEqual(config.cameras[1].source.opencv_source, 1)
-        self.assertEqual(config.cameras[0].publisher.publish_frequency_hz, 30.0)
-
-    def test_node_config_rejects_duplicate_json_keys(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "node-config.json5"
-            path.write_text("{base_key: 'a', base_key: 'b', cameras: []}")
-
-            with self.assertRaisesRegex(ValueError, "(?i)duplicate key"):
-                node.load_node_config(path)
-
-    def test_node_config_rejects_empty_camera_list_and_unknown_fields(self) -> None:
-        for document, message in (
-            ({"base_key": "camera", "cameras": []}, "too_short"),
-            (
-                {**copy.deepcopy(VALID_NODE_CONFIG), "endpoint": "tcp/localhost:7447"},
-                "extra_forbidden",
-            ),
-        ):
-            with (
-                self.subTest(message=message),
-                self.assertRaisesRegex(ValueError, message),
-            ):
-                load_document(document)
-
-    def test_node_config_rejects_invalid_source_selectors(self) -> None:
-        cases = (
-            ({}, "exactly one of index or path"),
-            ({"index": 0, "path": "/dev/video0"}, "exactly one of index or path"),
-            ({"index": -1}, "greater_than_equal"),
-            ({"index": True}, "int_type"),
-            ({"path": " "}, "path must be a non-empty string"),
-            ({"serial": "abc"}, "extra_forbidden"),
-        )
-        for source, message in cases:
-            document = copy.deepcopy(VALID_NODE_CONFIG)
-            document["cameras"][0]["source"] = source  # type: ignore[index]
-            with (
-                self.subTest(source=source),
-                self.assertRaisesRegex(ValueError, message),
-            ):
-                load_document(document)
-
-    def test_node_config_rejects_invalid_keys(self) -> None:
-        cases = (
-            ("base_key", "camera/*", "concrete Zenoh key"),
-            ("base_key", "camera//node", "valid Zenoh key expression"),
-            ("device_key", "front/left", "single key segment"),
-            ("device_key", "*", "concrete Zenoh key"),
-        )
-        for field, value, message in cases:
-            document = copy.deepcopy(VALID_NODE_CONFIG)
-            if field == "base_key":
-                document[field] = value
-            else:
-                document["cameras"][0][field] = value  # type: ignore[index]
-            with (
-                self.subTest(field=field, value=value),
-                self.assertRaisesRegex(ValueError, message),
-            ):
-                load_document(document)
-
-    def test_node_config_rejects_duplicate_camera_identity(self) -> None:
-        duplicate_key = copy.deepcopy(VALID_NODE_CONFIG)
-        duplicate_key["cameras"][1]["device_key"] = "front"  # type: ignore[index]
-        duplicate_source = copy.deepcopy(VALID_NODE_CONFIG)
-        duplicate_source["cameras"][1]["source"] = copy.deepcopy(  # type: ignore[index]
-            duplicate_source["cameras"][0]["source"]  # type: ignore[index]
-        )
-
-        for document, message in (
-            (duplicate_key, "duplicate device_key"),
-            (duplicate_source, "duplicate camera source"),
-        ):
-            with (
-                self.subTest(message=message),
-                self.assertRaisesRegex(ValueError, message),
-            ):
-                load_document(document)
-
-    def test_node_config_rejects_invalid_camera_and_publisher_values(self) -> None:
-        cases = (
-            ("size", [0, 720], "greater_than_equal"),
-            ("size", [1280], "missing"),
-            ("size", [1280, 720, 3], "too_long"),
-            ("size", [True, 720], "int_type"),
-            ("jpeg_quality", 101, "less_than_equal"),
-            ("publish_frequency_hz", 0, "greater_than"),
-            ("publish_frequency_hz", -1, "greater_than"),
-            ("publish_frequency_hz", float("inf"), "finite_number"),
-            ("publish_frequency_hz", float("nan"), "finite_number"),
-            ("publish_frequency_hz", 5e-324, "must produce a finite period"),
-            ("publish_frequency_hz", True, "must be a number"),
-            ("publish_frequency_hz", "30", "must be a number"),
-            ("congestion_control", "discard", "literal_error"),
-            ("reliability", "sometimes", "literal_error"),
-        )
-        for field, value, message in cases:
-            document = copy.deepcopy(VALID_NODE_CONFIG)
-            camera = document["cameras"][0]  # type: ignore[index]
-            target = (
-                camera if field in {"size", "jpeg_quality"} else camera["publisher"]
-            )
-            target[field] = value
-            with (
-                self.subTest(field=field, value=value),
-                self.assertRaisesRegex(ValueError, message),
-            ):
-                load_document(document)
 
 
 class FramePublisherTests(unittest.TestCase):
@@ -540,7 +373,7 @@ class FramePublisherTests(unittest.TestCase):
 
 class NodeRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.node_config = load_document(VALID_NODE_CONFIG)
+        self.node_config = NODE_CONFIG
 
     def test_shutdown_allows_cooperative_exit_before_closing_resources(self) -> None:
         stop_event = node.Event()
@@ -572,7 +405,7 @@ class NodeRuntimeTests(unittest.TestCase):
         worker_calls: list[tuple[str, str]] = []
 
         def record_worker(
-            camera: node.CameraConfig,
+            camera: CameraConfig,
             capture: object,
             publisher: object,
             stop_event: object,
@@ -715,7 +548,7 @@ class NodeRuntimeTests(unittest.TestCase):
         session.declare_publisher.side_effect = publisher_contexts
 
         def fail_front(
-            camera: node.CameraConfig,
+            camera: CameraConfig,
             capture: object,
             publisher: object,
             stop_event: object,
@@ -752,7 +585,7 @@ class NodeRuntimeTests(unittest.TestCase):
         release_worker = node.Event()
 
         def fail_or_block(
-            camera: node.CameraConfig,
+            camera: CameraConfig,
             capture: object,
             publisher: object,
             stop_event: object,
