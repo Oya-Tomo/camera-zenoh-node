@@ -16,7 +16,7 @@ $ uv run node.py
 
 ```json5
 {
-  base_key: "camera",
+  zenoh_key_prefix: "camera",
   cameras: [
     {
       device_key: "front",
@@ -48,14 +48,18 @@ $ uv run node.py
 
 未知、欠落、重複、型が不正なfieldは起動時に拒否されます。`cameras`には1件以上が必要です。`device_key`とsource selectorはノード内で一意でなければなりません。
 
+設定schema・validation・JSON5 loadingは`config.py`で定義します。`node.py`は検証済みの設定を受け取り、capture/publish runtimeを管理します。
+
+既存の設定では`base_key`を`zenoh_key_prefix`へ改名する必要があります。旧fieldはaliasとして受理しません。
+
 ### ノード設定
 
 | キー | 型 | 説明 |
 | --- | --- | --- |
-| `base_key` | concreteなZenoh key | このノードがpublishする全カメラの共通prefix。複数segmentを指定可能 |
+| `zenoh_key_prefix` | concreteなZenoh key | このノードがpublishする全カメラの共通prefix。複数segmentを指定可能 |
 | `cameras` | 空でないarray | カメラごとの設定 |
 
-publisher keyは常に`{base_key}/{device_key}`から生成します。上のexampleでは`camera/front`と`camera/rear`へpublishします。任意のfull keyやカメラごとのZenoh session・endpointは意図的に対応せず、全streamで1つのノードidentityと接続設定を維持します。
+publisher keyは常に`{zenoh_key_prefix}/{device_key}`から生成します。上のexampleでは`camera/front`と`camera/rear`へpublishします。任意のfull keyやカメラごとのZenoh session・endpointは意図的に対応せず、全streamで1つのノードidentityと接続設定を維持します。
 
 ### カメラ設定
 
@@ -117,7 +121,7 @@ $ uv run node.py --help
 | --- | --- |
 | payload | カメラの設定`size`へresizeしたJPEGバイナリ |
 | encoding | `image/jpeg` |
-| key expression | `{base_key}/{device_key}` |
+| key expression | `{zenoh_key_prefix}/{device_key}` |
 | congestion control | カメラの`publisher.congestion_control` |
 | reliability | カメラの`publisher.reliability` |
 
@@ -158,7 +162,7 @@ with zenoh.open(zenoh.Config()) as session:
 物理カメラを2台利用できる場合は、次を確認します。
 
 1. 2台に異なる`source`と`device_key`を設定する。
-2. ノードを起動し、各concreteな`{base_key}/{device_key}`に対して`examples/viewer.py`を1processずつ起動する。
+2. ノードを起動し、各concreteな`{zenoh_key_prefix}/{device_key}`に対して`examples/viewer.py`を1processずつ起動する。
 3. 両方のwindowで設定寸法の有効なframeを受信でき、選択したfrequencyでmissed-slot warningが継続しないことを確認する。
 4. 一方のカメラを切断するなどして障害を起こし、もう一方もreleaseしてノード全体が非0 statusで終了することを確認する。
 
