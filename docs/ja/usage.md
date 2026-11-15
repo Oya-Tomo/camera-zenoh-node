@@ -127,13 +127,22 @@ $ uv run node.py --help
 
 ## Subscriberでのデコード
 
-実行可能なviewerは、JPEGのdecodeにOpenCV、cross-platform表示にpygameを使います。1台のconcreteなcamera keyをsubscribeし、受信した最新JPEGだけを保持するため、表示が遅れても古いframeのqueueが際限なく蓄積しません。
+実行可能なviewerは、JPEGのdecodeにOpenCV、cross-platform表示にpygameを使います。1台のconcreteなcamera keyをsubscribeし、受信した最新JPEGだけを保持するため、表示が遅れても古いframeのqueueが際限なく蓄積しません。[設定ファイルを準備](setup.md#stream-viewer-exampleの準備)してから起動します。
 
 ```console
-$ uv run --group example examples/viewer.py camera/front
+$ uv run --group example examples/viewer.py
 ```
 
-defaultのZenoh設定は`tcp/127.0.0.1:7447`へ接続します。終了するときは`q`、`Esc`を押すかwindowを閉じます。別endpointや2台目の表示は[viewer example](../../examples/README_ja.md)を参照してください。
+表示するカメラは`examples/viewer-config.json5`で選択します。viewerは`{zenoh_key_prefix}/{device_key}`をsubscribeし、exampleでは`camera/front`です。
+
+```json5
+{
+  zenoh_key_prefix: "camera",
+  device_key: "front",
+}
+```
+
+終了するときは`q`、`Esc`を押すかwindowを閉じます。1つのviewer processが表示するカメラは1台です。2台目のカメラは、`device_key`がそのカメラを指す別のviewer設定を`--viewer-config`で指定した2つ目のviewer processで表示します。設定field、CLIオプション、Zenohの接続は[viewer example](../../examples/README_ja.md)を参照してください。
 
 同等の最小受信callbackは次のとおりです。
 
@@ -162,7 +171,7 @@ with zenoh.open(zenoh.Config()) as session:
 物理カメラを2台利用できる場合は、次を確認します。
 
 1. 2台に異なる`source`と`device_key`を設定する。
-2. ノードを起動し、各concreteな`{zenoh_key_prefix}/{device_key}`に対して`examples/viewer.py`を1processずつ起動する。
+2. ノードを起動し、カメラごとに`examples/viewer.py`を1processずつ起動する。各processには、`device_key`がそのカメラを指すviewer設定を`--viewer-config`で指定する。
 3. 両方のwindowで設定寸法の有効なframeを受信でき、選択したfrequencyでmissed-slot warningが継続しないことを確認する。
 4. 一方のカメラを切断するなどして障害を起こし、もう一方もreleaseしてノード全体が非0 statusで終了することを確認する。
 

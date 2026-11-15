@@ -135,6 +135,26 @@ $ uv run node.py \
 
 カメラ、publisher、Zenohの個別設定をCLIから上書きすることはできません。
 
+## Stream viewer exampleの準備
+
+任意で使う[stream viewer example](../../examples/README_ja.md)も、実行時設定をGitの管理対象外のファイルに置きます。リポジトリで管理されているexampleをコピーします。
+
+```console
+$ cp examples/viewer-config.example.json5 examples/viewer-config.json5
+$ cp examples/viewer-zenoh-config.example.json5 examples/viewer-zenoh-config.json5
+```
+
+| ファイル | 用途 |
+| --- | --- |
+| `examples/viewer-config.json5` | 表示するカメラ。`zenoh_key_prefix`と`device_key`で選択する |
+| `examples/viewer-zenoh-config.json5` | viewer sessionのZenoh設定 |
+
+viewerはこれらの既定パスを、current working directoryに関係なく`viewer.py`と同じdirectoryから解決します。
+
+同梱のviewer用Zenoh設定はpeerとして動作し、OSがportを割り当てるよう`tcp/0.0.0.0:0`でlistenし、`connect.endpoints`を空にしたままmulticast scoutingを有効にします。そのためviewerは、`config/zenoh-config.example.json5`で動作するノードを、同じマシンでも同じnetwork内の別のマシンでも編集なしで見つけられます。multicast scoutingがノードへ届かない場合は、`examples/viewer-zenoh-config.json5`の`connect.endpoints`へノードに到達可能なアドレスを追加します。たとえば`tcp/192.168.1.20:7447`と指定します。
+
+viewer設定のfieldとviewerのcommandは[viewer example](../../examples/README_ja.md)を参照してください。
+
 ## 開発時の検証
 
 変更後はformatter、lint、型検査、単体テストを実行します。

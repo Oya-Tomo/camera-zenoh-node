@@ -135,6 +135,26 @@ $ uv run node.py \
 
 Camera, publisher, and Zenoh values cannot be overridden individually from the CLI.
 
+## Preparing the stream viewer example
+
+The optional [stream viewer example](../../examples/README.md) also keeps its runtime configuration in files ignored by Git. Copy its version-controlled examples:
+
+```console
+$ cp examples/viewer-config.example.json5 examples/viewer-config.json5
+$ cp examples/viewer-zenoh-config.example.json5 examples/viewer-zenoh-config.json5
+```
+
+| File | Purpose |
+| --- | --- |
+| `examples/viewer-config.json5` | Camera to display, selected by `zenoh_key_prefix` and `device_key` |
+| `examples/viewer-zenoh-config.json5` | Zenoh configuration of the viewer session |
+
+The viewer resolves these default paths next to `viewer.py`, independently of the current working directory.
+
+The supplied viewer Zenoh configuration runs as a peer, listens on `tcp/0.0.0.0:0` so that the operating system assigns the port, leaves `connect.endpoints` empty, and enables multicast scouting. The viewer therefore finds a node running with `config/zenoh-config.example.json5` on the same machine or on another machine in the same network without any edit. When multicast scouting cannot reach the node, add an address at which the node is reachable to `connect.endpoints` in `examples/viewer-zenoh-config.json5`, for example `tcp/192.168.1.20:7447`.
+
+See the [viewer example](../../examples/README.md) for the viewer configuration fields and the viewer command.
+
 ## Development checks
 
 Run the formatter, linter, type checker, and unit tests after making changes:
