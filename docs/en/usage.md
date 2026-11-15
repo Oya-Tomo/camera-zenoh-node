@@ -127,13 +127,22 @@ Each Zenoh sample contains one frame.
 
 ## Decoding in a subscriber
 
-The ready-to-run viewer uses OpenCV for JPEG decoding and pygame for cross-platform display. It subscribes to one concrete camera key and keeps only the newest received JPEG, so a slow display does not build an unbounded queue of stale frames:
+The ready-to-run viewer uses OpenCV for JPEG decoding and pygame for cross-platform display. It subscribes to one concrete camera key and keeps only the newest received JPEG, so a slow display does not build an unbounded queue of stale frames. After [preparing its configuration files](setup.md#preparing-the-stream-viewer-example), start it with:
 
 ```console
-$ uv run --group example examples/viewer.py camera/front
+$ uv run --group example examples/viewer.py
 ```
 
-Its default Zenoh configuration connects to `tcp/127.0.0.1:7447`. Press `q`, `Esc`, or close the window to stop it. See the [viewer example](../../examples/README.md) for a different endpoint or a second camera.
+The camera is selected by `examples/viewer-config.json5`. The viewer subscribes to `{zenoh_key_prefix}/{device_key}`, which is `camera/front` in the example:
+
+```json5
+{
+  zenoh_key_prefix: "camera",
+  device_key: "front",
+}
+```
+
+Press `q`, `Esc`, or close the window to stop it. One viewer process displays one camera. A second camera is displayed by a second viewer process started with `--viewer-config` pointing to another viewer configuration whose `device_key` names that camera. See the [viewer example](../../examples/README.md) for the configuration fields, the CLI options, and the Zenoh connection.
 
 The equivalent minimal receiving callback is:
 
@@ -162,7 +171,7 @@ Use a concrete camera key such as `camera/front`, or a matching expression such 
 When two physical cameras are available:
 
 1. Configure distinct `source` and `device_key` values for both cameras.
-2. Start the node and one `examples/viewer.py` process for each concrete `{zenoh_key_prefix}/{device_key}`.
+2. Start the node and one `examples/viewer.py` process per camera, each with a `--viewer-config` file whose `device_key` names that camera.
 3. Confirm that both windows receive valid frames at their configured dimensions and that sustained missed-slot warnings do not appear at the chosen frequencies.
 4. Disconnect or otherwise fail one camera and confirm that the whole node exits non-zero after releasing the other camera.
 

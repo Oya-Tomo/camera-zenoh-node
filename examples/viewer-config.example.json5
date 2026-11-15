@@ -1,0 +1,4 @@
+{
+  zenoh_key_prefix: "camera",
+  device_key: "front",
+}
