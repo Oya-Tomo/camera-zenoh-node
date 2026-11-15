@@ -7,12 +7,23 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 from threading import Lock
+from typing import Self
 
 import cv2
+import json5
 import numpy as np
 import pygame
 import zenoh
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+DEFAULT_VIEWER_CONFIG_PATH = Path(__file__).with_name("viewer-config.json5")
 DEFAULT_ZENOH_CONFIG_PATH = Path(__file__).with_name("viewer-zenoh-config.json5")
 WINDOW_NAME = "camera-zenoh-node"
 DEFAULT_WINDOW_SIZE = (640, 480)
@@ -21,16 +32,62 @@ INVALID_FRAME_LOG_INTERVAL = 10
 QUIT_KEYS = {pygame.K_ESCAPE, pygame.K_q}
 
 
-def parse_concrete_key(value: str) -> str:
+def _validate_concrete_key(value: str, location: str) -> str:
     if not value.strip():
-        raise argparse.ArgumentTypeError("camera key must not be blank")
+        raise ValueError(f"{location} must be a non-empty string")
     try:
         zenoh.KeyExpr(value)
     except zenoh.ZError as error:
-        raise argparse.ArgumentTypeError(f"invalid Zenoh key: {error}") from error
+        raise ValueError(
+            f"{location} must be a valid Zenoh key expression: {error}"
+        ) from error
     if "*" in value:
-        raise argparse.ArgumentTypeError("camera key must not contain wildcards")
+        raise ValueError(f"{location} must be a concrete Zenoh key without wildcards")
     return value
+
+
+class ViewerConfig(BaseModel):
+    """Name the camera to display under the node configuration's key rules."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    zenoh_key_prefix: StrictStr
+    device_key: StrictStr
+
+    @field_validator("zenoh_key_prefix")
+    @classmethod
+    def validate_zenoh_key_prefix(cls, value: str) -> str:
+        return _validate_concrete_key(value, "zenoh_key_prefix")
+
+    @field_validator("device_key")
+    @classmethod
+    def validate_device_key(cls, value: str) -> str:
+        value = _validate_concrete_key(value, "device_key")
+        if "/" in value:
+            raise ValueError("device_key must be a single key segment")
+        return value
+
+    @property
+    def camera_key(self) -> str:
+        return f"{self.zenoh_key_prefix}/{self.device_key}"
+
+    @model_validator(mode="after")
+    def validate_camera_key(self) -> Self:
+        _validate_concrete_key(self.camera_key, "derived camera key")
+        return self
+
+
+def load_viewer_config(path: Path) -> ViewerConfig:
+    try:
+        document = json5.loads(
+            path.read_text(encoding="utf-8"), allow_duplicate_keys=False
+        )
+    except ValueError as error:
+        raise ValueError(f"{path}: invalid JSON5: {error}") from error
+    try:
+        return ViewerConfig.model_validate(document)
+    except ValidationError as error:
+        raise ValueError(f"{path}: invalid viewer configuration:\n{error}") from error
 
 
 class LatestFrame:
@@ -67,9 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "key_expression",
-        type=parse_concrete_key,
-        help="Concrete Zenoh key carrying JPEG frames.",
+        "--viewer-config",
+        type=Path,
+        default=DEFAULT_VIEWER_CONFIG_PATH,
+        metavar="FILE",
+        help="Viewer JSON5 configuration file.",
     )
     parser.add_argument(
         "--zenoh-config",
@@ -146,8 +205,9 @@ def run(zenoh_config: zenoh.Config, key_expression: str) -> None:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        viewer_config = load_viewer_config(args.viewer_config)
         zenoh_config = zenoh.Config.from_file(args.zenoh_config)
-        run(zenoh_config, args.key_expression)
+        run(zenoh_config, viewer_config.camera_key)
     except KeyboardInterrupt:
         print("\n[INFO] Stopped.")
     except (OSError, ValueError, cv2.error, pygame.error, zenoh.ZError) as error:

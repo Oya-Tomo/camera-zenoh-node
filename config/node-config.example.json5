@@ -1,5 +1,5 @@
 {
-  base_key: "camera",
+  zenoh_key_prefix: "camera",
   cameras: [
     {
       device_key: "front",
